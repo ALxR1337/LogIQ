@@ -1,0 +1,7 @@
+# LogIQ Robots.txt
+User-agent: *
+Allow: /
+Disallow: /test
+Disallow: /results
+
+Sitemap: https://logiq.app/sitemap.xml
