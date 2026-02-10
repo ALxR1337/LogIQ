@@ -4,8 +4,77 @@ const AuthContext = createContext(null)
 
 const AUTH_STORAGE_KEY = 'logiq_auth'
 const USERS_STORAGE_KEY = 'logiq_users'
+const AUTH_INTEGRITY_SECRET = 'logiq_auth_integrity_v2'
+
+// --- Crypto helpers ---
+
+/** Generate a random 16-byte hex salt */
+function generateSalt() {
+    const array = new Uint8Array(16)
+    crypto.getRandomValues(array)
+    return Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** Hash password with SHA-256 + per-user salt (Web Crypto API) */
+async function hashPassword(password, salt) {
+    const encoder = new TextEncoder()
+    const data = encoder.encode(salt + ':' + password)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** Legacy hash for migration from old simpleHash accounts */
+function legacyHash(str) {
+    let hash = 0
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i)
+        hash = ((hash << 5) - hash) + char
+        hash = hash & hash
+    }
+    return Math.abs(hash).toString(36)
+}
+
+// --- Integrity checksum (FNV-1a) ---
+
+function computeChecksum(obj) {
+    const str = AUTH_INTEGRITY_SECRET + ':' + JSON.stringify(obj)
+    let h = 0x811c9dc5
+    for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i)
+        h = Math.imul(h, 0x01000193)
+    }
+    return (h >>> 0).toString(36)
+}
+
+// --- User store obfuscation ---
+// Prevents casual browsing of user data in DevTools.
+// Not true encryption — client-side auth is inherently demo-grade.
+
+function encodeStore(data) {
+    try {
+        return btoa(unescape(encodeURIComponent(JSON.stringify(data))))
+    } catch {
+        return JSON.stringify(data)
+    }
+}
+
+function decodeStore(raw) {
+    try {
+        // Try obfuscated (base64) format first
+        return JSON.parse(decodeURIComponent(escape(atob(raw))))
+    } catch {
+        // Fall back to plain JSON (migration from old format)
+        try {
+            return JSON.parse(raw)
+        } catch {
+            return []
+        }
+    }
+}
 
 // --- Storage helpers ---
+
 function getStoredAuth() {
     try {
         const raw = localStorage.getItem(AUTH_STORAGE_KEY)
@@ -16,6 +85,14 @@ function getStoredAuth() {
             localStorage.removeItem(AUTH_STORAGE_KEY)
             return null
         }
+        // Validate integrity checksum — detect DevTools tampering
+        if (data._checksum) {
+            const { _checksum, ...payload } = data
+            if (_checksum !== computeChecksum(payload)) {
+                localStorage.removeItem(AUTH_STORAGE_KEY)
+                return null
+            }
+        }
         return data
     } catch {
         return null
@@ -25,33 +102,27 @@ function getStoredAuth() {
 function getUsers() {
     try {
         const raw = localStorage.getItem(USERS_STORAGE_KEY)
-        return raw ? JSON.parse(raw) : []
+        if (!raw) return []
+        return decodeStore(raw)
     } catch {
         return []
     }
 }
 
 function saveUsers(users) {
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users))
+    localStorage.setItem(USERS_STORAGE_KEY, encodeStore(users))
 }
 
 function persistAuth(user) {
-    const authData = {
+    const payload = {
         user: { email: user.email, id: user.id, createdAt: user.createdAt },
         issuedAt: Date.now(),
     }
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authData))
-}
-
-// Simple hash for password (not cryptographic — for demo/localStorage only)
-function simpleHash(str) {
-    let hash = 0
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i)
-        hash = ((hash << 5) - hash) + char
-        hash = hash & hash // Convert to 32bit integer
+    const authData = {
+        ...payload,
+        _checksum: computeChecksum(payload),
     }
-    return Math.abs(hash).toString(36)
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authData))
 }
 
 function generateId() {
@@ -97,7 +168,7 @@ export function AuthProvider({ children }) {
         }
     }, [])
 
-    const login = useCallback((email, password) => {
+    const login = useCallback(async (email, password) => {
         dispatch({ type: 'CLEAR_ERROR' })
 
         const users = getUsers()
@@ -108,10 +179,26 @@ export function AuthProvider({ children }) {
             return false
         }
 
-        const hashedPassword = simpleHash(password)
-        if (user.passwordHash !== hashedPassword) {
-            dispatch({ type: 'AUTH_ERROR', error: 'Incorrect password. Please try again.' })
-            return false
+        // Try SHA-256 hash (new accounts have a salt)
+        if (user.salt) {
+            const hashed = await hashPassword(password, user.salt)
+            if (user.passwordHash !== hashed) {
+                dispatch({ type: 'AUTH_ERROR', error: 'Incorrect password. Please try again.' })
+                return false
+            }
+        } else {
+            // Legacy migration: verify with old simpleHash
+            const legacyHashed = legacyHash(password)
+            if (user.passwordHash !== legacyHashed) {
+                dispatch({ type: 'AUTH_ERROR', error: 'Incorrect password. Please try again.' })
+                return false
+            }
+            // Upgrade to SHA-256 + salt transparently
+            const salt = generateSalt()
+            const newHash = await hashPassword(password, salt)
+            user.salt = salt
+            user.passwordHash = newHash
+            saveUsers(users)
         }
 
         persistAuth(user)
@@ -119,7 +206,7 @@ export function AuthProvider({ children }) {
         return true
     }, [])
 
-    const register = useCallback((email, password) => {
+    const register = useCallback(async (email, password) => {
         dispatch({ type: 'CLEAR_ERROR' })
 
         const users = getUsers()
@@ -130,10 +217,14 @@ export function AuthProvider({ children }) {
             return false
         }
 
+        const salt = generateSalt()
+        const hashed = await hashPassword(password, salt)
+
         const newUser = {
             id: generateId(),
             email: email.toLowerCase().trim(),
-            passwordHash: simpleHash(password),
+            passwordHash: hashed,
+            salt,
             createdAt: new Date().toISOString(),
         }
 

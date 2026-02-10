@@ -1,10 +1,46 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import DotGrid from '../components/DotGrid'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import { useDocumentHead } from '../hooks/useDocumentHead'
+
+// --- Login Rate Limiting ---
+const RATE_LIMIT_KEY = 'logiq_login_rl'
+const MAX_FAILURES = 5
+const LOCKOUT_DURATION = 60 * 1000 // 60 seconds
+
+function getRateLimitState() {
+    try {
+        const raw = localStorage.getItem(RATE_LIMIT_KEY)
+        if (!raw) return { failures: 0, lockedUntil: 0 }
+        return JSON.parse(raw)
+    } catch {
+        return { failures: 0, lockedUntil: 0 }
+    }
+}
+
+function setRateLimitState(state) {
+    localStorage.setItem(RATE_LIMIT_KEY, JSON.stringify(state))
+}
+
+function recordFailure() {
+    const state = getRateLimitState()
+    state.failures++
+    if (state.failures >= MAX_FAILURES) {
+        state.lockedUntil = Date.now() + LOCKOUT_DURATION
+    } else {
+        // Exponential backoff: 1s, 2s, 4s, 8s
+        state.lockedUntil = Date.now() + Math.pow(2, state.failures - 1) * 1000
+    }
+    setRateLimitState(state)
+    return state
+}
+
+function resetRateLimit() {
+    localStorage.removeItem(RATE_LIMIT_KEY)
+}
 
 export default function Login() {
     useDocumentHead('Log In', 'Log in to your LogIQ account to view your full IQ test results, score breakdown, and percentile ranking.')
@@ -17,6 +53,8 @@ export default function Login() {
     const [showPassword, setShowPassword] = useState(false)
     const [touched, setTouched] = useState({ email: false, password: false })
     const [submitting, setSubmitting] = useState(false)
+    const [rateLimitMsg, setRateLimitMsg] = useState(null)
+    const [cooldownSeconds, setCooldownSeconds] = useState(0)
 
     // Where to redirect after login
     const from = location.state?.from || '/'
@@ -35,7 +73,46 @@ export default function Login() {
     const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
     const passwordValid = password.length >= 6
 
-    const canSubmit = emailValid && passwordValid && !submitting
+    const canSubmit = emailValid && passwordValid && !submitting && cooldownSeconds <= 0
+
+    // Rate limit cooldown timer
+    useEffect(() => {
+        const rl = getRateLimitState()
+        if (rl.lockedUntil > Date.now()) {
+            const remaining = Math.ceil((rl.lockedUntil - Date.now()) / 1000)
+            setCooldownSeconds(remaining)
+            setRateLimitMsg(
+                rl.failures >= MAX_FAILURES
+                    ? `Too many failed attempts. Try again in ${remaining}s.`
+                    : `Please wait ${remaining}s before trying again.`
+            )
+        }
+    }, [])
+
+    // Countdown timer for rate limit
+    useEffect(() => {
+        if (cooldownSeconds <= 0) {
+            setRateLimitMsg(null)
+            return
+        }
+        const interval = setInterval(() => {
+            setCooldownSeconds(prev => {
+                const next = prev - 1
+                if (next <= 0) {
+                    setRateLimitMsg(null)
+                    return 0
+                }
+                const rl = getRateLimitState()
+                setRateLimitMsg(
+                    rl.failures >= MAX_FAILURES
+                        ? `Too many failed attempts. Try again in ${next}s.`
+                        : `Please wait ${next}s before trying again.`
+                )
+                return next
+            })
+        }, 1000)
+        return () => clearInterval(interval)
+    }, [cooldownSeconds > 0]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleSubmit = (e) => {
         e.preventDefault()
@@ -43,12 +120,28 @@ export default function Login() {
 
         if (!canSubmit) return
 
+        // Check rate limit before attempting
+        const rl = getRateLimitState()
+        if (rl.lockedUntil > Date.now()) {
+            const remaining = Math.ceil((rl.lockedUntil - Date.now()) / 1000)
+            setCooldownSeconds(remaining)
+            return
+        }
+
         setSubmitting(true)
         // Simulated slight delay for UX feel
-        setTimeout(() => {
-            const success = login(email, password)
+        setTimeout(async () => {
+            const success = await login(email, password)
             if (success) {
+                resetRateLimit()
                 navigate(from, { replace: true })
+            } else {
+                // Record failure and apply rate limit
+                const newState = recordFailure()
+                if (newState.lockedUntil > Date.now()) {
+                    const remaining = Math.ceil((newState.lockedUntil - Date.now()) / 1000)
+                    setCooldownSeconds(remaining)
+                }
             }
             setSubmitting(false)
         }, 400)
@@ -80,6 +173,17 @@ export default function Login() {
                                     <circle cx="8" cy="11.5" r="0.75" fill="currentColor" />
                                 </svg>
                                 <span>{error}</span>
+                            </div>
+                        )}
+
+                        {rateLimitMsg && (
+                            <div className="auth-error auth-error--rate-limit" role="alert">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                    <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
+                                    <path d="M8 4v5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                                    <path d="M8 8l2.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                                </svg>
+                                <span>{rateLimitMsg}</span>
                             </div>
                         )}
 

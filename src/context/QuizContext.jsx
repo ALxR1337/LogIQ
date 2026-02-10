@@ -1,6 +1,7 @@
 import { createContext, useContext, useReducer, useCallback, useRef, useEffect } from 'react'
 import { getSessionQuestions, getPracticeQuestions } from '../data/questions'
 import { calculateResults } from '../data/scoring'
+import { trackQuizStart, trackQuizComplete, trackQuizAbandon, trackQuestionTime } from '../utils/analytics'
 
 const QuizContext = createContext(null)
 
@@ -232,6 +233,8 @@ function quizReducer(state, action) {
 export function QuizProvider({ children }) {
     const [state, dispatch] = useReducer(quizReducer, initialState)
     const timerRef = useRef(null)
+    const stateRef = useRef(state)
+    stateRef.current = state
 
     // --- Auto-save: persist full quiz state on every meaningful change ---
     useEffect(() => {
@@ -247,6 +250,7 @@ export function QuizProvider({ children }) {
     const startQuiz = useCallback(() => {
         clearSavedSession()
         dispatch({ type: 'START_QUIZ' })
+        trackQuizStart('full')
         // Start the first question timer
         setTimeout(() => {
             dispatch({ type: 'GO_TO_QUESTION', index: 0 })
@@ -255,6 +259,7 @@ export function QuizProvider({ children }) {
 
     const startPractice = useCallback(() => {
         dispatch({ type: 'START_PRACTICE' })
+        trackQuizStart('practice')
         setTimeout(() => {
             dispatch({ type: 'GO_TO_QUESTION', index: 0 })
         }, 0)
@@ -295,10 +300,43 @@ export function QuizProvider({ children }) {
     const finishQuiz = useCallback(() => {
         if (timerRef.current) clearInterval(timerRef.current)
         clearSavedSession()
+
+        // Track per-question times before finishing
+        const currentState = stateRef.current
+        if (currentState.status === 'active') {
+            const now = Date.now()
+            const finalTimes = [...currentState.questionTimes]
+            finalTimes[currentState.currentIndex] =
+                (finalTimes[currentState.currentIndex] || 0) +
+                (now - (currentState.questionStartTimes[currentState.currentIndex] || now))
+            finalTimes.forEach((t, i) => {
+                if (t > 0) trackQuestionTime(i, t)
+            })
+        }
+
         dispatch({ type: 'FINISH_QUIZ' })
     }, [])
 
+    // Track completion after state updates to 'finished'
+    const prevStatusRef = useRef(state.status)
+    useEffect(() => {
+        if (prevStatusRef.current === 'active' && state.status === 'finished' && state.results) {
+            const timeSpent = state.endTime - (state.startTime || state.endTime)
+            if (state.mode === 'full' && state.results.iqScore != null) {
+                trackQuizComplete('full', state.results.iqScore, state.results.totalQuestions, timeSpent)
+            } else if (state.mode === 'practice') {
+                trackQuizComplete('practice', null, state.results.totalQuestions, timeSpent)
+            }
+        }
+        prevStatusRef.current = state.status
+    }, [state.status, state.results, state.mode, state.endTime, state.startTime])
+
     const resetQuiz = useCallback(() => {
+        // If resetting from an active quiz, track as abandonment
+        const currentState = stateRef.current
+        if (currentState.status === 'active') {
+            trackQuizAbandon(currentState.mode, currentState.currentIndex, currentState.questions.length)
+        }
         if (timerRef.current) clearInterval(timerRef.current)
         clearSavedSession()
         dispatch({ type: 'RESET' })

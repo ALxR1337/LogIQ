@@ -54,8 +54,8 @@ export default function Register() {
         if (!canSubmit) return
 
         setSubmitting(true)
-        setTimeout(() => {
-            const success = register(email, password)
+        setTimeout(async () => {
+            const success = await register(email, password)
             if (success) {
                 navigate(from, { replace: true })
             }

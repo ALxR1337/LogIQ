@@ -4,8 +4,33 @@
  * Encodes result data into a compact URL-safe string that can be
  * shared as a permalink. No backend required — all data lives in the URL.
  *
- * Format: base64url-encoded JSON with compact keys
+ * Format: base64url-encoded JSON + HMAC signature (dot-separated)
+ * Example: <base64url_data>.<signature>
+ *
+ * The signature prevents casual URL forgery — anyone modifying the
+ * encoded data will fail the integrity check on decode.
  */
+
+const PERMALINK_SECRET = 'logiq_permalink_integrity_v2_2026'
+
+/**
+ * Compute a keyed hash signature for tamper detection.
+ * Uses dual FNV-1a for wider output (≈12 chars).
+ * Not cryptographically hardened — client-side key — but prevents casual forgery.
+ */
+function computeSignature(data) {
+    const str = PERMALINK_SECRET + ':' + data
+    let h1 = 0x811c9dc5
+    let h2 = 0x050c5d1f
+    for (let i = 0; i < str.length; i++) {
+        const c = str.charCodeAt(i)
+        h1 ^= c
+        h1 = Math.imul(h1, 0x01000193)
+        h2 ^= c
+        h2 = Math.imul(h2, 0x100001b3)
+    }
+    return (h1 >>> 0).toString(36) + (h2 >>> 0).toString(36)
+}
 
 /**
  * Encode results object into a URL-safe string
@@ -46,10 +71,13 @@ export function encodeResults(results) {
     const json = JSON.stringify(compact)
     // Base64url encode (URL-safe base64)
     const base64 = btoa(unescape(encodeURIComponent(json)))
-    return base64
+    const encoded = base64
         .replace(/\+/g, '-')
         .replace(/\//g, '_')
         .replace(/=+$/, '')
+    // Append HMAC signature for tamper detection
+    const signature = computeSignature(encoded)
+    return encoded + '.' + signature
 }
 
 /**
@@ -59,8 +87,27 @@ export function encodeResults(results) {
  */
 export function decodeResults(encoded) {
     try {
+        // Split signature if present (format: data.signature)
+        let data = encoded
+        let isVerified = false
+
+        const dotIndex = encoded.lastIndexOf('.')
+        if (dotIndex > 0) {
+            const payload = encoded.substring(0, dotIndex)
+            const sig = encoded.substring(dotIndex + 1)
+            const expectedSig = computeSignature(payload)
+            if (sig === expectedSig) {
+                data = payload
+                isVerified = true
+            } else {
+                // Signature mismatch — tampered URL
+                return null
+            }
+        }
+        // Unsigned URLs (legacy links without signature) are still accepted
+
         // Restore standard base64
-        let base64 = encoded
+        let base64 = data
             .replace(/-/g, '+')
             .replace(/_/g, '/')
         // Add padding
@@ -96,6 +143,7 @@ export function decodeResults(encoded) {
             fastestQuestion: compact.ft,
             slowestQuestion: compact.st,
             sharedAt: compact.ts,
+            isVerified,
         }
     } catch {
         return null
