@@ -14,6 +14,7 @@ const FAQ = lazy(() => import('./pages/FAQ'))
 const Quiz = lazy(() => import('./pages/Quiz'))
 const Practice = lazy(() => import('./pages/Practice'))
 const Results = lazy(() => import('./pages/Results'))
+const SharedResults = lazy(() => import('./pages/Results').then(m => ({ default: m.SharedResults })))
 const Login = lazy(() => import('./pages/Login'))
 const Register = lazy(() => import('./pages/Register'))
 const Privacy = lazy(() => import('./pages/Privacy'))
@@ -46,6 +47,7 @@ function App() {
                                 <Route path="/test" element={<Quiz />} />
                                 <Route path="/practice" element={<Practice />} />
                                 <Route path="/results" element={<Results />} />
+                                <Route path="/results/:id" element={<SharedResults />} />
                                 <Route path="/login" element={<Login />} />
                                 <Route path="/register" element={<Register />} />
                                 <Route path="/privacy" element={<Privacy />} />
