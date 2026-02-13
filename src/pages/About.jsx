@@ -5,7 +5,7 @@ import Footer from '../components/Footer'
 import { useDocumentHead } from '../hooks/useDocumentHead'
 
 export default function About() {
-    useDocumentHead('About', 'Learn about LogIQ\'s methodology, the five cognitive domains tested, and how your IQ score is calculated using psychometric frameworks.')
+    useDocumentHead('About', 'Learn how LogIQ works, the five cognitive areas we test, and how your score is calculated.')
     return (
         <>
             <DotGrid />
@@ -16,8 +16,8 @@ export default function About() {
                     <div className="about-hero">
                         <span className="about-label">About LogIQ</span>
                         <h1 className="about-title">
-                            Precision-engineered<br />
-                            cognitive measurement<span className="accent-dot">.</span>
+                            A smarter way to<br />
+                            understand your mind<span className="accent-dot">.</span>
                         </h1>
                     </div>
 
@@ -26,12 +26,12 @@ export default function About() {
                             <div className="about-card-number">01</div>
                             <h2 className="about-card-title">What is LogIQ?</h2>
                             <p className="about-card-text">
-                                LogIQ is a scientifically designed cognitive assessment that measures
-                                your intellectual capacity across five key dimensions: pattern recognition,
+                                LogIQ is a free, scientifically designed IQ test that explores
+                                your strengths across five key cognitive areas: pattern recognition,
                                 sequence completion, logical deduction, spatial reasoning, and analogical thinking.
                             </p>
                             <p className="about-card-text">
-                                Our test draws from decades of psychometric research to deliver a reliable
+                                Built on decades of psychometric research, it gives you a reliable
                                 estimate of your IQ score — no sign-ups, no paywalls, no gimmicks.
                             </p>
                         </section>

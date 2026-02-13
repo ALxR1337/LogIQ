@@ -92,8 +92,8 @@ function BellCurve({ iqScore }) {
             {/* Gradient fill */}
             <defs>
                 <linearGradient id="bellGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="rgba(0, 240, 255, 0.2)" />
-                    <stop offset="100%" stopColor="rgba(0, 240, 255, 0)" />
+                    <stop offset="0%" stopColor="rgba(74, 144, 226, 0.2)" />
+                    <stop offset="100%" stopColor="rgba(74, 144, 226, 0)" />
                 </linearGradient>
             </defs>
 
@@ -104,7 +104,7 @@ function BellCurve({ iqScore }) {
             <path
                 d={pathData}
                 fill="none"
-                stroke="rgba(0, 240, 255, 0.6)"
+                stroke="rgba(74, 144, 226, 0.6)"
                 strokeWidth="2"
             />
 
@@ -114,7 +114,7 @@ function BellCurve({ iqScore }) {
                 y1={padding.top + chartH}
                 x2={padding.left + chartW}
                 y2={padding.top + chartH}
-                stroke="rgba(232, 230, 225, 0.1)"
+                stroke="rgba(200, 210, 220, 0.15)"
                 strokeWidth="1"
             />
 
@@ -126,16 +126,16 @@ function BellCurve({ iqScore }) {
                         <line
                             x1={x} y1={padding.top + chartH}
                             x2={x} y2={padding.top + chartH + 6}
-                            stroke="rgba(232, 230, 225, 0.15)"
+                            stroke="rgba(200, 210, 220, 0.2)"
                             strokeWidth="1"
                         />
                         <text
                             x={x}
                             y={padding.top + chartH + 22}
                             textAnchor="middle"
-                            fill="rgba(232, 230, 225, 0.35)"
+                            fill="rgba(90, 108, 125, 0.4)"
                             fontSize="10"
-                            fontFamily="'DM Mono', monospace"
+                            fontFamily="'Inter', sans-serif"
                         >
                             {val}
                         </text>
@@ -147,7 +147,7 @@ function BellCurve({ iqScore }) {
             <line
                 x1={userX} y1={userY}
                 x2={userX} y2={padding.top + chartH}
-                stroke="var(--accent)"
+                stroke="var(--primary)"
                 strokeWidth="1.5"
                 strokeDasharray="4,3"
                 opacity="0.6"
@@ -156,16 +156,16 @@ function BellCurve({ iqScore }) {
                 cx={userX}
                 cy={userY}
                 r="5"
-                fill="var(--accent)"
+                fill="var(--primary)"
                 className="bell-curve-dot"
             />
             <text
                 x={userX}
                 y={userY - 12}
                 textAnchor="middle"
-                fill="var(--accent)"
+                fill="var(--primary)"
                 fontSize="11"
-                fontFamily="'DM Mono', monospace"
+                fontFamily="'Inter', sans-serif"
                 fontWeight="500"
             >
                 {iqScore}
